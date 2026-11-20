@@ -23,6 +23,8 @@ let schemaReady = false;
 async function ensureSchema(db) {
   if (schemaReady) return;
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
+  const cols = (await db.prepare('PRAGMA table_info(orders)').all()).results;
+  if (!cols.some((c) => c.name === 'discount')) await db.prepare('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0').run();
   schemaReady = true;
 }
 
@@ -72,7 +74,7 @@ function cleanOrder(b) {
     client_name: str(b.client_name, 120), phone: str(b.phone, 40),
     event_type: EVENT_TYPES.includes(b.event_type) ? b.event_type : 'autre',
     product: str(b.product, 200), description: str(b.description, 3000),
-    quantity: Math.max(1, Math.min(100000, Math.round(Number(b.quantity) || 1))), unit_price: mil(b.unit_price),
+    quantity: Math.max(1, Math.min(100000, Math.round(Number(b.quantity) || 1))), unit_price: mil(b.unit_price), discount: mil(b.discount),
     order_date: isDate(b.order_date) ? b.order_date : todayStr(), delivery_date: isDate(b.delivery_date) ? b.delivery_date : '',
     status: STATUSES.includes(b.status) ? b.status : 'nouvelle',
   };
@@ -94,9 +96,9 @@ function bulkInsertStatements(db, list) {
     }
   }
   return [
-    db.prepare(`INSERT OR IGNORE INTO orders (uid, client_name, phone, event_type, product, description, quantity, unit_price, order_date, delivery_date, status, is_demo, created_at, updated_at)
+    db.prepare(`INSERT OR IGNORE INTO orders (uid, client_name, phone, event_type, product, description, quantity, unit_price, discount, order_date, delivery_date, status, is_demo, created_at, updated_at)
       SELECT j.value->>'uid', j.value->>'client_name', j.value->>'phone', j.value->>'event_type', j.value->>'product', j.value->>'description',
-        j.value->>'quantity', j.value->>'unit_price', j.value->>'order_date', j.value->>'delivery_date', j.value->>'status', j.value->>'is_demo',
+        j.value->>'quantity', j.value->>'unit_price', j.value->>'discount', j.value->>'order_date', j.value->>'delivery_date', j.value->>'status', j.value->>'is_demo',
         j.value->>'created_at', j.value->>'updated_at' FROM json_each(?1) j`).bind(JSON.stringify(orders)),
     db.prepare(`INSERT OR IGNORE INTO payments (uid, order_id, amount, date, note, is_advance)
       SELECT j.value->>'uid', o.id, j.value->>'amount', j.value->>'date', j.value->>'note', j.value->>'is_advance'
@@ -217,8 +219,8 @@ async function api(request, db) {
       return json({ ok: true });
     }
     const o = cleanOrder({ ...existing, ...b });
-    await db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
-      .bind(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.order_date, o.delivery_date, o.status, nowIso(), existing.id).run();
+    await db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?, order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
+      .bind(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.order_date, o.delivery_date, o.status, nowIso(), existing.id).run();
     return json({ ok: true });
   }
   if ((m = /^POST \/api\/orders\/([A-Za-z0-9-]{1,64})\/payments$/.exec(route))) {

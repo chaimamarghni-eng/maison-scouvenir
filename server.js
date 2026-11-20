@@ -69,6 +69,8 @@ for (const t of ['orders', 'payments']) {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${t}_uid ON ${t}(uid)`);
 }
 
+if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'discount')) db.exec('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0');
+
 const EVENT_TYPES = ['mariage', 'fiancailles', 'naissance', 'anniversaire', 'autre'];
 const STATUSES = ['nouvelle', 'preparation', 'prete', 'livree', 'annulee'];
 
@@ -141,6 +143,7 @@ function cleanOrder(b) {
     description: str(b.description, 3000),
     quantity: Math.max(1, Math.min(100000, Math.round(Number(b.quantity) || 1))),
     unit_price: mil(b.unit_price),
+    discount: mil(b.discount),
     order_date: isDate(b.order_date) ? b.order_date : todayStr(),
     delivery_date: isDate(b.delivery_date) ? b.delivery_date : '',
     status: STATUSES.includes(b.status) ? b.status : 'nouvelle',
@@ -156,9 +159,9 @@ function insertPayment(orderId, p) {
 }
 function insertOrder(o, isDemo = 0, payments = [], uid = null) {
   const t = nowIso();
-  const r = db.prepare(`INSERT INTO orders (client_name, phone, event_type, product, description, quantity, unit_price,
-      order_date, delivery_date, status, is_demo, created_at, updated_at, uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price,
+  const r = db.prepare(`INSERT INTO orders (client_name, phone, event_type, product, description, quantity, unit_price, discount,
+      order_date, delivery_date, status, is_demo, created_at, updated_at, uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount,
       o.order_date, o.delivery_date, o.status, isDemo ? 1 : 0, o.created_at || t, o.updated_at || t, validUid(uid) || crypto.randomUUID());
   const id = Number(r.lastInsertRowid);
   for (const p of payments) if (mil(p.amount) > 0) insertPayment(id, p);
@@ -325,9 +328,9 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     const o = cleanOrder({ ...existing, ...b });
-    db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?,
+    db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?,
       order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
-      .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price,
+      .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount,
         o.order_date, o.delivery_date, o.status, nowIso(), id);
     return send(res, 200, { ok: true });
   }
