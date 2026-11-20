@@ -1,0 +1,9 @@
+{
+  "name": "maison-scouvenir",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gestion des commandes Maison SCouvenir",
+  "main": "server.js",
+  "engines": { "node": ">=22.13" },
+  "scripts": { "start": "node --no-warnings server.js" }
+}
