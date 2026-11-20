@@ -257,3 +257,16 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 .logo { width: 132px; height: 132px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgba(80, 55, 40, .10); background: var(--paper); }
 .logo.sm { width: 44px; height: 44px; box-shadow: 0 0 0 1px var(--line); }
 .sidebar .logo.sm { width: 52px; height: 52px; }
+
+.items { display: grid; gap: 12px; }
+.item { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; background: #fff; }
+.item-head { display: flex; align-items: center; justify-content: space-between; min-height: 40px; }
+.item-title { font-weight: 500; color: var(--taupe); }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: end; }
+.grid3 .i-total { min-height: 50px; display: flex; align-items: center; font-size: 1.05rem; }
+@media (max-width: 560px) { .grid3 { grid-template-columns: 1fr 1fr; } .grid3 > :last-child { grid-column: 1 / -1; } .grid3 .i-total { min-height: 0; } }
+.lines { display: grid; gap: 8px; }
+.line { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 16px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.line .what { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.line small { display: block; font-weight: 400; color: var(--taupe); }
+@media (max-width: 480px) { .line { grid-template-columns: 1fr auto; } .line .what { grid-column: 1 / -1; } }

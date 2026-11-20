@@ -60,8 +60,16 @@
   };
   const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
+  // Articles d'une commande ; une ancienne commande devient un seul article.
+  function itemsOf(o) {
+    let it = o.items;
+    if (typeof it === 'string') { try { it = JSON.parse(it); } catch { it = []; } }
+    if (Array.isArray(it) && it.length) return it;
+    return [{ product: o.product || '', model: '', quantity: o.quantity || 1, unit_price: o.unit_price || 0 }];
+  }
+  const itemName = (i) => i.product || i.model || 'Article';
   function calc(o) {
-    const subtotal = o.quantity * o.unit_price;
+    const subtotal = itemsOf(o).reduce((s, i) => s + i.quantity * i.unit_price, 0);
     const discount = Math.min(Math.max(0, o.discount || 0), subtotal);
     const total = subtotal - discount; // montant après remise
     let paid = 0, advance = 0;
@@ -97,6 +105,7 @@
       product: String(o.product || '').trim(), description: String(o.description || '').trim(),
       quantity: Math.max(1, Math.round(Number(o.quantity) || 1)), unit_price: Math.max(0, Math.round(Number(o.unit_price) || 0)), discount: Math.max(0, Math.round(Number(o.discount) || 0)),
       delivery_mode: o.delivery_mode === 'livraison' ? 'livraison' : 'sur_place', address: o.delivery_mode === 'livraison' ? String(o.address || '').trim() : '',
+      items: Array.isArray(o.items) ? o.items : (typeof o.items === 'string' ? o.items : []),
       order_date: o.order_date || today(), delivery_date: o.delivery_date || '', status: STATUS[o.status] ? o.status : 'nouvelle',
     };
   };
@@ -523,7 +532,7 @@
       <div class="top"><div style="min-width:0;flex:1 1 170px"><div class="name">${esc(o.client_name)}</div>
         <div class="meta">${esc(ref(o))} · ${esc(EVENTS[o.event_type])} · ${o.delivery_mode === 'livraison' ? 'Livraison' : 'Sur place'}${o.phone ? ' · ' + esc(o.phone) : ''}</div></div>
         <select class="pill st-${o.status}" data-status="${o.uid}" aria-label="Statut de la commande">${Object.entries(STATUS_SHORT).map(([k, l]) => `<option value="${k}" ${k === o.status ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-      <div class="meta">${esc(o.product || 'Produit non précisé')} · ${o.quantity} × ${money(o.unit_price)}${c.discount ? ` · remise ${money(c.discount)}` : ''}</div>
+      <div class="meta">${(() => { const it = itemsOf(o); return it.length > 1 ? `${it.length} articles : ${esc(it.map(itemName).join(', '))}` : `${esc(it[0].product || 'Produit non précisé')}${it[0].model ? ' (' + esc(it[0].model) + ')' : ''} · ${it[0].quantity} × ${money(it[0].unit_price)}`; })()}${c.discount ? ` · remise ${money(c.discount)}` : ''}</div>
       <div class="figs"><div><span>Livraison</span><b>${esc(o.delivery_date ? shortDate(o.delivery_date) : '—')}</b>${late ? '<span class="pill tag-late" style="justify-self:start;font-size:.72rem;padding:2px 8px">En retard</span>' : ''}</div>
         <div><span>Total</span><b>${money(c.total)}</b></div>
         <div><span>Reste</span>${c.remaining > 0 ? `<b class="due">${money(c.remaining)}</b>` : '<b style="color:var(--ok)">Payée</b>'}</div></div>
@@ -562,10 +571,9 @@
         <div class="status-picker">${Object.entries(STATUS).map(([k, l]) => `<button class="st-${k} ${k === o.status ? 'on' : ''}" data-set="${k}" aria-pressed="${k === o.status}">${esc(l)}</button>`).join('')}</div></section>
 
       <section class="panel"><header><h2>Détails de la commande</h2></header>
+        <div class="lines">${itemsOf(o).map((i) => `<div class="line"><div class="what">${esc(itemName(i))}${i.model ? `<small>Modèle : ${esc(i.model)}</small>` : ''}</div>
+          <span class="muted num">${i.quantity} × ${money(i.unit_price)}</span><b class="num">${money(i.quantity * i.unit_price)}</b></div>`).join('')}</div>
         <dl class="facts">
-          <div><dt>Produit</dt><dd>${esc(o.product || '—')}</dd></div>
-          <div><dt>Quantité</dt><dd class="num">${o.quantity}</dd></div>
-          <div><dt>Prix unitaire</dt><dd class="num">${money(o.unit_price)}</dd></div>
           <div><dt>Prix total</dt><dd class="num">${c.discount ? money(c.subtotal) : `<b>${money(c.total)}</b>`}</dd></div>
           ${c.discount ? `<div><dt>Remise</dt><dd class="num">− ${money(c.discount)}</dd></div><div><dt>Montant après remise</dt><dd class="num"><b>${money(c.total)}</b></dd></div>` : ''}
           <div><dt>Reçue le</dt><dd>${esc(fmtDate(o.order_date))}</dd></div>
@@ -631,12 +639,10 @@
         <div class="form-section"><h2>${icon('gift')}Commande</h2>
           <div class="field"><span class="label" id="ev-l">Type d'événement</span>
             <div class="choice" role="radiogroup" aria-labelledby="ev-l">${Object.entries(EVENTS).map(([k, l]) => `<label><input type="radio" name="o-event" id="o-ev-${k}" value="${k}" ${val.event_type === k ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div></div>
-          <div class="field"><label for="o-product">Produit commandé</label><input type="text" id="o-product" placeholder="Ex. Boîtes à dragées, plateau, bougies…" value="${esc(val.product)}"></div>
+          <div class="field"><span class="label">Articles commandés</span>
+            <div class="items" id="items"></div>
+            <button type="button" class="btn small" id="add-item" style="justify-self:start">${icon('plus')}Ajouter un article</button></div>
           <div class="field"><label for="o-desc">Personnalisation et détails</label><textarea id="o-desc" placeholder="Prénoms, couleurs, date, modèle, texte à graver…">${esc(val.description)}</textarea></div>
-          <div class="grid2">
-            <div class="field"><label for="o-qty">Quantité</label><div class="stepper"><button type="button" id="q-minus" aria-label="Diminuer">−</button><input type="text" id="o-qty" inputmode="numeric" value="${val.quantity}"><button type="button" id="q-plus" aria-label="Augmenter">+</button></div></div>
-            <div class="field"><label for="o-price">Prix unitaire (DT)</label><input type="text" id="o-price" inputmode="decimal" placeholder="0" value="${esc(milToInput(val.unit_price))}"></div>
-          </div>
           <div class="grid2">
             <div class="field"><label for="o-date">Date de réception</label><input type="date" id="o-date" value="${esc(val.order_date)}"></div>
             <div class="field"><label for="o-delivery" id="o-delivery-l">Date de livraison prévue</label><input type="date" id="o-delivery" value="${esc(val.delivery_date)}"></div>
@@ -658,10 +664,43 @@
         <div class="summary"><div class="figs"><div id="s-sub-wrap" hidden><span>Avant remise</span><b id="s-sub">0 DT</b></div><div><span id="s-total-l">Prix total</span><b id="s-total">0 DT</b></div><div><span>Reste à payer</span><b id="s-rest">0 DT</b></div></div>
           <button class="btn primary" type="submit" id="o-save">${icon('save')}${editing ? 'Enregistrer' : 'Enregistrer la commande'}</button></div>
       </form>`;
-    const qty = $('#o-qty');
-    const readQty = () => Math.max(1, Math.round(Number(qty.value.replace(/\D/g, '')) || 1));
+    let seq = 0;
+    const itemRow = (i) => {
+      const n = ++seq;
+      return `<div class="item" data-item>
+        <div class="item-head"><b class="item-title">Article</b><button type="button" class="icon-btn" data-rm aria-label="Retirer cet article">${icon('trash')}</button></div>
+        <div class="grid2">
+          <div class="field"><label for="it-p-${n}">Produit</label><input type="text" id="it-p-${n}" class="i-prod" placeholder="Ex. Boîtes à dragées" value="${esc(i.product || '')}"></div>
+          <div class="field"><label for="it-m-${n}">Modèle</label><input type="text" id="it-m-${n}" class="i-model" placeholder="Ex. modèle Rose, réf. 12" value="${esc(i.model || '')}"></div>
+        </div>
+        <div class="grid3">
+          <div class="field"><label for="it-q-${n}">Quantité</label><input type="text" id="it-q-${n}" class="i-qty" inputmode="numeric" value="${i.quantity || 1}"></div>
+          <div class="field"><label for="it-u-${n}">Prix unitaire (DT)</label><input type="text" id="it-u-${n}" class="i-price" inputmode="decimal" placeholder="0" value="${esc(milToInput(i.unit_price || 0))}"></div>
+          <div class="field"><span class="label">Total</span><b class="i-total num">0 DT</b></div>
+        </div></div>`;
+    };
+    const itemsBox = $('#items');
+    const readItems = () => $$('[data-item]', itemsBox).map((r) => ({
+      product: $('.i-prod', r).value.trim(), model: $('.i-model', r).value.trim(),
+      quantity: Math.max(1, Math.round(Number($('.i-qty', r).value.replace(/\D/g, '')) || 1)), unit_price: toMil($('.i-price', r).value),
+    }));
+    const renumber = () => {
+      const rows = $$('[data-item]', itemsBox);
+      rows.forEach((r, k) => { $('.item-title', r).textContent = rows.length > 1 ? `Article ${k + 1}` : 'Article'; $('[data-rm]', r).hidden = rows.length < 2; });
+    };
+    const addItem = (i, focus) => {
+      itemsBox.insertAdjacentHTML('beforeend', itemRow(i));
+      const row = itemsBox.lastElementChild;
+      $('[data-rm]', row).addEventListener('click', () => { row.remove(); renumber(); update(); });
+      renumber();
+      if (focus) $('.i-prod', row).focus();
+    };
+    (editing ? itemsOf(val) : [{ quantity: 1 }]).forEach((i) => addItem(i));
+    $('#add-item').addEventListener('click', () => { addItem({ quantity: 1 }, true); update(); });
     const update = () => {
-      const sub = readQty() * toMil($('#o-price').value);
+      const items = readItems();
+      $$('[data-item]', itemsBox).forEach((r, k) => { $('.i-total', r).textContent = money(items[k].quantity * items[k].unit_price); });
+      const sub = items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
       const discIn = toMil($('#o-disc').value);
       const disc = Math.min(discIn, sub);
       const total = sub - disc;
@@ -676,8 +715,6 @@
       w.hidden = !((paid > total && total > 0) || discIn > sub);
       w.textContent = discIn > sub ? 'La remise dépasse le prix total.' : editing ? 'Le montant déjà payé dépasse le nouveau prix total.' : "L'avance dépasse le prix total.";
     };
-    $('#q-minus').onclick = () => { qty.value = Math.max(1, readQty() - 1); update(); };
-    $('#q-plus').onclick = () => { qty.value = readQty() + 1; update(); };
     $('#order-form').addEventListener('input', update);
     const syncMode = () => {
       const liv = $('#o-mode-liv').checked;
@@ -694,10 +731,12 @@
       if (!name) { toast('Indiquez le nom de la cliente.'); $('#o-name').focus(); return; }
       const b = {
         client_name: name, phone: $('#o-phone').value.trim(), event_type: $('input[name="o-event"]:checked')?.value || 'autre',
-        product: $('#o-product').value.trim(), description: $('#o-desc').value.trim(), quantity: readQty(), unit_price: toMil($('#o-price').value), discount: toMil($('#o-disc').value),
+        description: $('#o-desc').value.trim(), discount: toMil($('#o-disc').value),
         order_date: $('#o-date').value || today(), delivery_date: $('#o-delivery').value || '',
         delivery_mode: $('#o-mode-liv').checked ? 'livraison' : 'sur_place', address: $('#o-mode-liv').checked ? $('#o-address').value.trim() : '',
       };
+      const items = readItems().filter((i) => i.product || i.model || i.unit_price);
+      Object.assign(b, { items, product: items.map(itemName).join(', ').slice(0, 200), quantity: items.reduce((s, i) => s + i.quantity, 0) || 1, unit_price: items.length === 1 ? items[0].unit_price : 0 });
       await busy($('#o-save'), async () => {
         if (editing) { b.status = $('#o-status').value; await store.updateOrder(o.uid, b); await reload(); toast('Modifications enregistrées'); go('commande-' + o.uid); }
         else { b.advance = toMil($('#o-adv').value); const r = await store.createOrder(b); await reload(); toast('Commande enregistrée'); go('commande-' + r.uid); }
@@ -858,18 +897,22 @@
     const dt = (m) => Math.round(m) / 1000;
     const orders = [...state.orders].sort((a, b) => (a.id || 1e9) - (b.id || 1e9));
     const rows = orders.map((o) => { const c = calc(o); return {
-      'N°': ref(o), 'Cliente': o.client_name, 'Téléphone': o.phone, 'Événement': EVENTS[o.event_type], 'Produit': o.product, 'Personnalisation': o.description,
-      'Quantité': o.quantity, 'Prix unitaire (DT)': dt(o.unit_price), 'Prix avant remise (DT)': dt(c.subtotal), 'Remise (DT)': dt(c.discount), 'Prix après remise (DT)': dt(c.total), 'Avance (DT)': dt(c.advance), 'Total payé (DT)': dt(c.paid),
+      'N°': ref(o), 'Cliente': o.client_name, 'Téléphone': o.phone, 'Événement': EVENTS[o.event_type], 'Articles': itemsOf(o).map((i) => `${i.quantity} × ${itemName(i)}${i.model ? ' (' + i.model + ')' : ''} à ${dt(i.unit_price)} DT`).join(' ; '), 'Personnalisation': o.description,
+      'Quantité totale': itemsOf(o).reduce((s, i) => s + i.quantity, 0), 'Prix avant remise (DT)': dt(c.subtotal), 'Remise (DT)': dt(c.discount), 'Prix après remise (DT)': dt(c.total), 'Avance (DT)': dt(c.advance), 'Total payé (DT)': dt(c.paid),
       'Reste à payer (DT)': dt(c.remaining), 'Date de réception': frDate(o.order_date), 'Livraison ou sur place': o.delivery_mode === 'livraison' ? 'Livraison' : 'Sur place', 'Adresse de livraison': o.address || '', 'Date prévue': frDate(o.delivery_date), 'Statut': STATUS[o.status],
     }; });
     const pays = orders.flatMap((o) => o.payments.map((p) => ({ 'N° commande': ref(o), 'Cliente': o.client_name, 'Date': frDate(p.date), 'Type': p.is_advance ? 'Avance' : 'Paiement', 'Note': p.note, 'Montant (DT)': dt(p.amount) })));
     const wb = X.utils.book_new();
     const ws1 = X.utils.json_to_sheet(rows);
-    ws1['!cols'] = [8, 22, 14, 13, 28, 40, 9, 14, 16, 12, 18, 12, 14, 16, 15, 14, 32, 13, 18].map((w) => ({ wch: w }));
+    ws1['!cols'] = [8, 22, 14, 13, 50, 40, 10, 16, 12, 18, 12, 14, 16, 15, 14, 32, 13, 18].map((w) => ({ wch: w }));
     X.utils.book_append_sheet(wb, ws1, 'Commandes');
     const ws2 = X.utils.json_to_sheet(pays.length ? pays : [{ 'N° commande': '', 'Cliente': '', 'Date': '', 'Type': '', 'Note': '', 'Montant (DT)': '' }]);
     ws2['!cols'] = [12, 22, 12, 10, 26, 14].map((w) => ({ wch: w }));
     X.utils.book_append_sheet(wb, ws2, 'Paiements');
+    const lines = orders.flatMap((o) => itemsOf(o).map((i) => ({ 'N° commande': ref(o), 'Cliente': o.client_name, 'Produit': i.product, 'Modèle': i.model || '', 'Quantité': i.quantity, 'Prix unitaire (DT)': dt(i.unit_price), 'Total (DT)': dt(i.quantity * i.unit_price) })));
+    const ws3 = X.utils.json_to_sheet(lines);
+    ws3['!cols'] = [12, 22, 28, 22, 10, 16, 12].map((w) => ({ wch: w }));
+    X.utils.book_append_sheet(wb, ws3, 'Articles');
     X.writeFile(wb, `Maison-SCouvenir-commandes-${today()}.xlsx`);
     toast('Fichier Excel téléchargé');
   }

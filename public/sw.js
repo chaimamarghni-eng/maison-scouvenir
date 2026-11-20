@@ -1,5 +1,5 @@
 /* Maison SCouvenir : permet d'ouvrir l'application sans connexion. */
-const CACHE = 'scouvenir-v4';
+const CACHE = 'scouvenir-v5';
 const SHELL = ['/', '/styles.css', '/app.js', '/fonts/fonts.css', '/fonts/cormorant-garamond-latin.woff2', '/fonts/jost-latin.woff2',
   '/logo.png', '/icon-192.png', '/apple-touch-icon.png', '/icon-512.png', '/manifest.webmanifest', '/vendor/xlsx.full.min.js'];
 

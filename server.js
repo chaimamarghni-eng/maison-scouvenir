@@ -74,6 +74,7 @@ for (const t of ['orders', 'payments']) {
   if (!cols.includes('discount')) db.exec('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('delivery_mode')) db.exec("ALTER TABLE orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'sur_place'");
   if (!cols.includes('address')) db.exec("ALTER TABLE orders ADD COLUMN address TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('items')) db.exec("ALTER TABLE orders ADD COLUMN items TEXT NOT NULL DEFAULT '[]'");
 }
 
 const EVENT_TYPES = ['mariage', 'fiancailles', 'naissance', 'anniversaire', 'autre'];
@@ -139,6 +140,26 @@ function allOrders() {
   for (const p of pays) byOrder.get(p.order_id)?.payments.push(p);
   return orders;
 }
+// Articles d'une commande : [{ product, model, quantity, unit_price (millimes) }]
+function cleanItems(raw) {
+  let list = raw;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } }
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 50).map((i) => ({
+    product: str(i && i.product, 200), model: str(i && i.model, 200),
+    quantity: Math.max(1, Math.min(100000, Math.round(Number(i && i.quantity) || 1))), unit_price: mil(i && i.unit_price),
+  })).filter((i) => i.product || i.model || i.unit_price);
+}
+function withItems(o, raw) {
+  const items = cleanItems(raw);
+  o.items = JSON.stringify(items);
+  if (items.length) {
+    o.product = items.map((i) => i.product || i.model || 'Article').join(', ').slice(0, 200);
+    o.quantity = items.reduce((s, i) => s + i.quantity, 0);
+    o.unit_price = items.length === 1 ? items[0].unit_price : 0;
+  }
+  return o;
+}
 function cleanOrder(b) {
   const o = {
     client_name: str(b.client_name, 120),
@@ -156,7 +177,7 @@ function cleanOrder(b) {
     status: STATUSES.includes(b.status) ? b.status : 'nouvelle',
   };
   if (!o.client_name) throw httpError(400, 'Le nom de la cliente est obligatoire.');
-  return o;
+  return withItems(o, b.items);
 }
 function insertPayment(orderId, p) {
   const uid = validUid(p.uid) || crypto.randomUUID();
@@ -166,9 +187,9 @@ function insertPayment(orderId, p) {
 }
 function insertOrder(o, isDemo = 0, payments = [], uid = null) {
   const t = nowIso();
-  const r = db.prepare(`INSERT INTO orders (client_name, phone, event_type, product, description, quantity, unit_price, discount, delivery_mode, address,
-      order_date, delivery_date, status, is_demo, created_at, updated_at, uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address,
+  const r = db.prepare(`INSERT INTO orders (client_name, phone, event_type, product, description, quantity, unit_price, discount, delivery_mode, address, items,
+      order_date, delivery_date, status, is_demo, created_at, updated_at, uid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address, o.items,
       o.order_date, o.delivery_date, o.status, isDemo ? 1 : 0, o.created_at || t, o.updated_at || t, validUid(uid) || crypto.randomUUID());
   const id = Number(r.lastInsertRowid);
   for (const p of payments) if (mil(p.amount) > 0) insertPayment(id, p);
@@ -335,9 +356,9 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     const o = cleanOrder({ ...existing, ...b });
-    db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?, delivery_mode=?, address=?,
+    db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?, delivery_mode=?, address=?, items=?,
       order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
-      .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address,
+      .run(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address, o.items,
         o.order_date, o.delivery_date, o.status, nowIso(), id);
     return send(res, 200, { ok: true });
   }

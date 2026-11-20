@@ -28,6 +28,7 @@ async function ensureSchema(db) {
   if (!has('discount')) await db.prepare('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0').run();
   if (!has('delivery_mode')) await db.prepare("ALTER TABLE orders ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'sur_place'").run();
   if (!has('address')) await db.prepare("ALTER TABLE orders ADD COLUMN address TEXT NOT NULL DEFAULT ''").run();
+  if (!has('items')) await db.prepare("ALTER TABLE orders ADD COLUMN items TEXT NOT NULL DEFAULT '[]'").run();
   schemaReady = true;
 }
 
@@ -72,6 +73,26 @@ const cookie = (value, maxAge) => `sc_session=${value}; Path=/; HttpOnly; Secure
 const tokenFrom = (request) => (/(?:^|;\s*)sc_session=([a-f0-9]{64})/.exec(request.headers.get('cookie') || '') || [])[1];
 
 /* ---------- données ---------- */
+// Articles d'une commande : [{ product, model, quantity, unit_price (millimes) }]
+function cleanItems(raw) {
+  let list = raw;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } }
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 50).map((i) => ({
+    product: str(i && i.product, 200), model: str(i && i.model, 200),
+    quantity: Math.max(1, Math.min(100000, Math.round(Number(i && i.quantity) || 1))), unit_price: mil(i && i.unit_price),
+  })).filter((i) => i.product || i.model || i.unit_price);
+}
+function withItems(o, raw) {
+  const items = cleanItems(raw);
+  o.items = JSON.stringify(items);
+  if (items.length) {
+    o.product = items.map((i) => i.product || i.model || 'Article').join(', ').slice(0, 200);
+    o.quantity = items.reduce((s, i) => s + i.quantity, 0);
+    o.unit_price = items.length === 1 ? items[0].unit_price : 0;
+  }
+  return o;
+}
 function cleanOrder(b) {
   const o = {
     client_name: str(b.client_name, 120), phone: str(b.phone, 40),
@@ -83,7 +104,7 @@ function cleanOrder(b) {
     status: STATUSES.includes(b.status) ? b.status : 'nouvelle',
   };
   if (!o.client_name) throw new HttpError(400, 'Le nom de la cliente est obligatoire.');
-  return o;
+  return withItems(o, b.items);
 }
 
 // Insère plusieurs commandes (et leurs paiements) en deux requêtes seulement.
@@ -100,9 +121,9 @@ function bulkInsertStatements(db, list) {
     }
   }
   return [
-    db.prepare(`INSERT OR IGNORE INTO orders (uid, client_name, phone, event_type, product, description, quantity, unit_price, discount, delivery_mode, address, order_date, delivery_date, status, is_demo, created_at, updated_at)
+    db.prepare(`INSERT OR IGNORE INTO orders (uid, client_name, phone, event_type, product, description, quantity, unit_price, discount, delivery_mode, address, items, order_date, delivery_date, status, is_demo, created_at, updated_at)
       SELECT j.value->>'uid', j.value->>'client_name', j.value->>'phone', j.value->>'event_type', j.value->>'product', j.value->>'description',
-        j.value->>'quantity', j.value->>'unit_price', j.value->>'discount', j.value->>'delivery_mode', j.value->>'address', j.value->>'order_date', j.value->>'delivery_date', j.value->>'status', j.value->>'is_demo',
+        j.value->>'quantity', j.value->>'unit_price', j.value->>'discount', j.value->>'delivery_mode', j.value->>'address', j.value->>'items', j.value->>'order_date', j.value->>'delivery_date', j.value->>'status', j.value->>'is_demo',
         j.value->>'created_at', j.value->>'updated_at' FROM json_each(?1) j`).bind(JSON.stringify(orders)),
     db.prepare(`INSERT OR IGNORE INTO payments (uid, order_id, amount, date, note, is_advance)
       SELECT j.value->>'uid', o.id, j.value->>'amount', j.value->>'date', j.value->>'note', j.value->>'is_advance'
@@ -223,8 +244,8 @@ async function api(request, db) {
       return json({ ok: true });
     }
     const o = cleanOrder({ ...existing, ...b });
-    await db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?, delivery_mode=?, address=?, order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
-      .bind(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address, o.order_date, o.delivery_date, o.status, nowIso(), existing.id).run();
+    await db.prepare(`UPDATE orders SET client_name=?, phone=?, event_type=?, product=?, description=?, quantity=?, unit_price=?, discount=?, delivery_mode=?, address=?, items=?, order_date=?, delivery_date=?, status=?, updated_at=? WHERE id=?`)
+      .bind(o.client_name, o.phone, o.event_type, o.product, o.description, o.quantity, o.unit_price, o.discount, o.delivery_mode, o.address, o.items, o.order_date, o.delivery_date, o.status, nowIso(), existing.id).run();
     return json({ ok: true });
   }
   if ((m = /^POST \/api\/orders\/([A-Za-z0-9-]{1,64})\/payments$/.exec(route))) {
