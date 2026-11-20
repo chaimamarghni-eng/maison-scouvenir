@@ -96,6 +96,7 @@
       client_name: String(o.client_name).trim(), phone: String(o.phone || '').trim(), event_type: EVENTS[o.event_type] ? o.event_type : 'autre',
       product: String(o.product || '').trim(), description: String(o.description || '').trim(),
       quantity: Math.max(1, Math.round(Number(o.quantity) || 1)), unit_price: Math.max(0, Math.round(Number(o.unit_price) || 0)), discount: Math.max(0, Math.round(Number(o.discount) || 0)),
+      delivery_mode: o.delivery_mode === 'livraison' ? 'livraison' : 'sur_place', address: o.delivery_mode === 'livraison' ? String(o.address || '').trim() : '',
       order_date: o.order_date || today(), delivery_date: o.delivery_date || '', status: STATUS[o.status] ? o.status : 'nouvelle',
     };
   };
@@ -520,7 +521,7 @@
     const c = calc(o), late = isLate(o);
     return `<article class="order-card" data-open="${o.uid}" tabindex="0" aria-label="Commande de ${esc(o.client_name)}">
       <div class="top"><div style="min-width:0;flex:1 1 170px"><div class="name">${esc(o.client_name)}</div>
-        <div class="meta">${esc(ref(o))} · ${esc(EVENTS[o.event_type])}${o.phone ? ' · ' + esc(o.phone) : ''}</div></div>
+        <div class="meta">${esc(ref(o))} · ${esc(EVENTS[o.event_type])} · ${o.delivery_mode === 'livraison' ? 'Livraison' : 'Sur place'}${o.phone ? ' · ' + esc(o.phone) : ''}</div></div>
         <select class="pill st-${o.status}" data-status="${o.uid}" aria-label="Statut de la commande">${Object.entries(STATUS_SHORT).map(([k, l]) => `<option value="${k}" ${k === o.status ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
       <div class="meta">${esc(o.product || 'Produit non précisé')} · ${o.quantity} × ${money(o.unit_price)}${c.discount ? ` · remise ${money(c.discount)}` : ''}</div>
       <div class="figs"><div><span>Livraison</span><b>${esc(o.delivery_date ? shortDate(o.delivery_date) : '—')}</b>${late ? '<span class="pill tag-late" style="justify-self:start;font-size:.72rem;padding:2px 8px">En retard</span>' : ''}</div>
@@ -568,7 +569,9 @@
           <div><dt>Prix total</dt><dd class="num">${c.discount ? money(c.subtotal) : `<b>${money(c.total)}</b>`}</dd></div>
           ${c.discount ? `<div><dt>Remise</dt><dd class="num">− ${money(c.discount)}</dd></div><div><dt>Montant après remise</dt><dd class="num"><b>${money(c.total)}</b></dd></div>` : ''}
           <div><dt>Reçue le</dt><dd>${esc(fmtDate(o.order_date))}</dd></div>
-          <div><dt>Livraison prévue</dt><dd>${esc(fmtDate(o.delivery_date))}</dd></div>
+          <div><dt>${o.delivery_mode === 'livraison' ? 'Livraison prévue' : 'Retrait prévu'}</dt><dd>${esc(fmtDate(o.delivery_date))}</dd></div>
+          <div><dt>Mode</dt><dd>${o.delivery_mode === 'livraison' ? 'Livraison' : 'Sur place (la cliente vient chercher)'}</dd></div>
+          ${o.delivery_mode === 'livraison' ? `<div style="grid-column:1/-1"><dt>Adresse de livraison</dt><dd style="white-space:pre-wrap">${esc(o.address || 'Non précisée')}</dd></div>` : ''}
         </dl>
         ${o.description ? `<div class="field"><span class="label">Personnalisation</span><p class="desc">${esc(o.description)}</p></div>` : ''}
       </section>
@@ -614,7 +617,7 @@
     const editing = id != null;
     const o = editing ? state.orders.find((x) => x.uid === id) : null;
     if (editing && !o) { v.innerHTML = `<a class="back" href="#commandes">${icon('back')}Commandes</a><div class="empty">Cette commande n'existe plus.</div>`; return; }
-    const val = o || { client_name: '', phone: '', event_type: 'mariage', product: '', description: '', quantity: 1, unit_price: 0, discount: 0, order_date: today(), delivery_date: '', status: 'nouvelle', payments: [] };
+    const val = o || { client_name: '', phone: '', event_type: 'mariage', product: '', description: '', quantity: 1, unit_price: 0, discount: 0, delivery_mode: 'sur_place', address: '', order_date: today(), delivery_date: '', status: 'nouvelle', payments: [] };
     const paidBefore = editing ? calc(o).paid : 0;
     v.innerHTML = `
       ${editing ? `<a class="back" href="#commande-${o.uid}">${icon('back')}Retour à la commande</a>` : ''}
@@ -636,8 +639,14 @@
           </div>
           <div class="grid2">
             <div class="field"><label for="o-date">Date de réception</label><input type="date" id="o-date" value="${esc(val.order_date)}"></div>
-            <div class="field"><label for="o-delivery">Date de livraison prévue</label><input type="date" id="o-delivery" value="${esc(val.delivery_date)}"></div>
+            <div class="field"><label for="o-delivery" id="o-delivery-l">Date de livraison prévue</label><input type="date" id="o-delivery" value="${esc(val.delivery_date)}"></div>
           </div>
+          <div class="field"><span class="label" id="dm-l">Livraison ou sur place ?</span>
+            <div class="choice" role="radiogroup" aria-labelledby="dm-l">
+              <label><input type="radio" name="o-mode" id="o-mode-place" value="sur_place" ${val.delivery_mode !== 'livraison' ? 'checked' : ''}><span>Sur place</span></label>
+              <label><input type="radio" name="o-mode" id="o-mode-liv" value="livraison" ${val.delivery_mode === 'livraison' ? 'checked' : ''}><span>Livraison</span></label>
+            </div></div>
+          <div class="field" id="o-address-f"><label for="o-address">Adresse de livraison</label><textarea id="o-address" style="min-height:72px" placeholder="Rue, ville, repère…">${esc(val.address || '')}</textarea></div>
           ${editing ? `<div class="field"><label for="o-status">Statut</label><select id="o-status">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${k === val.status ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>` : ''}
         </div>
         <div class="form-section"><h2>${icon('coins')}Paiement</h2>
@@ -670,6 +679,13 @@
     $('#q-minus').onclick = () => { qty.value = Math.max(1, readQty() - 1); update(); };
     $('#q-plus').onclick = () => { qty.value = readQty() + 1; update(); };
     $('#order-form').addEventListener('input', update);
+    const syncMode = () => {
+      const liv = $('#o-mode-liv').checked;
+      $('#o-address-f').hidden = !liv;
+      $('#o-delivery-l').textContent = liv ? 'Date de livraison prévue' : 'Date de retrait prévue';
+    };
+    $$('input[name="o-mode"]').forEach((r) => r.addEventListener('change', () => { syncMode(); if ($('#o-mode-liv').checked) $('#o-address').focus(); }));
+    syncMode();
     update();
     if (!editing) $('#o-name').focus();
     $('#order-form').addEventListener('submit', async (e) => {
@@ -680,6 +696,7 @@
         client_name: name, phone: $('#o-phone').value.trim(), event_type: $('input[name="o-event"]:checked')?.value || 'autre',
         product: $('#o-product').value.trim(), description: $('#o-desc').value.trim(), quantity: readQty(), unit_price: toMil($('#o-price').value), discount: toMil($('#o-disc').value),
         order_date: $('#o-date').value || today(), delivery_date: $('#o-delivery').value || '',
+        delivery_mode: $('#o-mode-liv').checked ? 'livraison' : 'sur_place', address: $('#o-mode-liv').checked ? $('#o-address').value.trim() : '',
       };
       await busy($('#o-save'), async () => {
         if (editing) { b.status = $('#o-status').value; await store.updateOrder(o.uid, b); await reload(); toast('Modifications enregistrées'); go('commande-' + o.uid); }
@@ -843,12 +860,12 @@
     const rows = orders.map((o) => { const c = calc(o); return {
       'N°': ref(o), 'Cliente': o.client_name, 'Téléphone': o.phone, 'Événement': EVENTS[o.event_type], 'Produit': o.product, 'Personnalisation': o.description,
       'Quantité': o.quantity, 'Prix unitaire (DT)': dt(o.unit_price), 'Prix avant remise (DT)': dt(c.subtotal), 'Remise (DT)': dt(c.discount), 'Prix après remise (DT)': dt(c.total), 'Avance (DT)': dt(c.advance), 'Total payé (DT)': dt(c.paid),
-      'Reste à payer (DT)': dt(c.remaining), 'Date de réception': frDate(o.order_date), 'Livraison prévue': frDate(o.delivery_date), 'Statut': STATUS[o.status],
+      'Reste à payer (DT)': dt(c.remaining), 'Date de réception': frDate(o.order_date), 'Livraison ou sur place': o.delivery_mode === 'livraison' ? 'Livraison' : 'Sur place', 'Adresse de livraison': o.address || '', 'Date prévue': frDate(o.delivery_date), 'Statut': STATUS[o.status],
     }; });
     const pays = orders.flatMap((o) => o.payments.map((p) => ({ 'N° commande': ref(o), 'Cliente': o.client_name, 'Date': frDate(p.date), 'Type': p.is_advance ? 'Avance' : 'Paiement', 'Note': p.note, 'Montant (DT)': dt(p.amount) })));
     const wb = X.utils.book_new();
     const ws1 = X.utils.json_to_sheet(rows);
-    ws1['!cols'] = [8, 22, 14, 13, 28, 40, 9, 14, 16, 12, 18, 12, 14, 16, 15, 15, 18].map((w) => ({ wch: w }));
+    ws1['!cols'] = [8, 22, 14, 13, 28, 40, 9, 14, 16, 12, 18, 12, 14, 16, 15, 14, 32, 13, 18].map((w) => ({ wch: w }));
     X.utils.book_append_sheet(wb, ws1, 'Commandes');
     const ws2 = X.utils.json_to_sheet(pays.length ? pays : [{ 'N° commande': '', 'Cliente': '', 'Date': '', 'Type': '', 'Note': '', 'Montant (DT)': '' }]);
     ws2['!cols'] = [12, 22, 12, 10, 26, 14].map((w) => ({ wch: w }));
